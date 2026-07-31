@@ -120,8 +120,7 @@ async fn status() -> Result<()> {
     Ok(())
 }
 
-/// Shared by the `switch` command and `stream --switch`'s (default) immediate
-/// go-live call.
+/// Call the relay's explicit switch endpoint.
 async fn call_switch(base: &str, slug: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let resp = client

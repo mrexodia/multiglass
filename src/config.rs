@@ -79,5 +79,11 @@ pub fn login(key: String, upstream_url: String, local_port: Option<u16>) -> Resu
         "multiglass: config saved to {}",
         crate::paths::config_path()?.display()
     );
+    if crate::daemon::is_running() {
+        println!(
+            "multiglass: the running relay is still using the previous settings; \
+             run `multiglass stop` and `multiglass start` to apply this config"
+        );
+    }
     Ok(())
 }

@@ -133,6 +133,10 @@ fn is_alive(pid: u32) -> bool {
     windows_process::is_alive(pid)
 }
 
+pub fn is_running() -> bool {
+    read_pid().is_some_and(is_alive)
+}
+
 #[cfg(unix)]
 fn terminate(pid: u32) -> Result<bool> {
     let status = Command::new("kill")

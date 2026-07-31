@@ -4,10 +4,10 @@
 //! ever leaves 127.0.0.1.
 //!
 //! Every tab is meant to run this unconditionally, relay running or not: the
-//! shell itself starts immediately regardless of relay reachability, and
-//! registering + streaming happen entirely in the background, connecting (and
-//! reconnecting) whenever the relay is there. Showing the terminal is the
-//! point; streaming is a bonus the relay may or may not be around for.
+//! shell itself starts immediately regardless of relay reachability, while
+//! registration waits in parallel. The push connection starts only after the
+//! relay has accepted its local key, avoiding a register-vs-push authentication
+//! race. Showing the terminal is the point; streaming is a bonus.
 
 use crate::identity;
 use anyhow::Result;
@@ -60,39 +60,42 @@ pub async fn run(slug: Option<String>, no_switch: bool, command: Vec<String>) ->
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
-    // Tell the relay about this session in the background: retried forever
-    // against a relay that isn't up (yet), entirely detached from the
-    // terminal below — a relay that's down, rejects us, or never shows up
-    // must never block or touch the shell the user is actually using.
-    tokio::spawn(register_with_relay(
-        base.clone(),
-        id,
-        slug.clone(),
-        cwd,
-        command.join(" "),
-        no_switch,
-    ));
+    let presentation = Presentation::load(None)?;
+    // Start the shell before waiting for the relay. Holding a SourceSession is
+    // enough to keep the terminal bridge alive; its newest-frame watch channel
+    // safely replaces intermediate frames until the pusher consumes it.
+    let source = pty::start(&command, false, true)?;
+    let mut source_frames = source.frames.clone();
+
+    // Registration and the shell run concurrently, but the local `/push` is
+    // deliberately not attempted until registration succeeds. Previously both
+    // requests raced whenever a relay started, and `/push` could win and receive
+    // a fatal 403 for its not-yet-known throwaway key.
+    tokio::select! {
+        _ = register_with_relay(
+            base.clone(),
+            id,
+            slug.clone(),
+            cwd,
+            command.join(" "),
+            no_switch,
+        ) => {}
+        _ = async {
+            while source_frames.changed().await.is_ok() {}
+        } => return Ok(()),
+    }
 
     let mut options = PushOptions::new(base, key);
-    // Start the shell now, not after the hub (here, the local relay) accepts
-    // a connection — the terminal itself doesn't care whether anything's
-    // streaming it. `pty::start`'s `passive` similarly keeps hub connectivity
-    // from ever pausing/clearing the real terminal once it's live.
+    // The source is already running, so have `push` take ownership immediately
+    // rather than invoking its normal connect-before-source gate.
     options.eager_start = true;
-    let presentation = Presentation::load(None)?;
-    push(
-        move || pty::start(&command, false, true),
-        presentation,
-        options,
-    )
-    .await
+    push(move || Ok(source), presentation, options).await
 }
 
 /// Register this session with the relay and, unless `no_switch`, switch it
-/// live — retried forever against a relay that isn't up (yet). Runs detached
-/// from the terminal, so any failure here (relay down, rejects us, etc.) just
-/// means this tab never shows up as a `multiglass` session — never something
-/// the wrapped shell's own terminal shows or is affected by.
+/// live. Retried forever without affecting the already-running terminal: local
+/// transport failures and a relay that's still starting are both transient from
+/// the stream's point of view.
 async fn register_with_relay(
     base: String,
     id: String,
@@ -102,23 +105,23 @@ async fn register_with_relay(
     no_switch: bool,
 ) {
     let client = reqwest::Client::new();
-    let body = serde_json::json!({ "id": id, "slug": slug, "cwd": cwd, "command": command });
-    let resp = loop {
-        match client
+    let body = serde_json::json!({
+        "id": id,
+        "slug": slug,
+        "cwd": cwd,
+        "command": command,
+        "activate": !no_switch,
+    });
+    loop {
+        let registered = client
             .post(format!("{base}/multiglass/register"))
             .json(&body)
             .send()
             .await
-        {
-            Ok(resp) => break resp,
-            Err(e) if e.is_connect() => tokio::time::sleep(RELAY_WAIT_BACKOFF).await,
-            Err(_) => return, // non-transient transport failure: give up quietly
+            .is_ok_and(|resp| resp.status().is_success());
+        if registered {
+            break;
         }
-    };
-    if !resp.status().is_success() {
-        return; // relay reachable but rejected us: give up quietly
-    }
-    if !no_switch {
-        let _ = crate::call_switch(&base, &slug).await;
+        tokio::time::sleep(RELAY_WAIT_BACKOFF).await;
     }
 }

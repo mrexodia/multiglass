@@ -32,3 +32,11 @@ pub fn pid_path() -> Result<PathBuf> {
 pub fn log_path() -> Result<PathBuf> {
     Ok(state_dir()?.join("relay.log"))
 }
+
+pub fn sessions_path() -> Result<PathBuf> {
+    Ok(state_dir()?.join("local-sessions.json"))
+}
+
+pub fn active_session_path() -> Result<PathBuf> {
+    Ok(state_dir()?.join("active-session"))
+}
