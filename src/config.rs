@@ -4,9 +4,10 @@
 //! browser-gated page handing them a string to paste is no weaker than the
 //! existing `shellglass push --key` instructions it replaces.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::io::Write as _;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
 const DEFAULT_LOCAL_PORT: u16 = 47890;
@@ -33,13 +34,19 @@ impl Config {
 
     pub fn load() -> Result<Self> {
         let path = crate::paths::config_path()?;
-        let bytes = std::fs::read(&path).with_context(|| {
-            format!(
-                "reading {} — run `multiglass config <url> <key>` first",
-                path.display()
-            )
-        })?;
-        serde_json::from_slice(&bytes).context("parsing multiglass config")
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!(concat!(
+                "multiglass is not configured yet.",
+                "\n\nConfigure the upstream hub first:",
+                "\n  multiglass config <url> <shellglass-key>"
+            )),
+            Err(error) => {
+                return Err(error).with_context(|| format!("reading {}", path.display()));
+            }
+        };
+        serde_json::from_slice(&bytes)
+            .with_context(|| format!("parsing configuration at {}", path.display()))
     }
 
     pub fn save(&self) -> Result<()> {
@@ -53,6 +60,9 @@ impl Config {
             .with_context(|| format!("writing {}", path.display()))?;
         file.write_all(&body)?;
         // The key is a bearer credential — same posture as the push key it wraps.
+        // On Windows the file inherits the user's ACL from %APPDATA%. Unix needs
+        // an explicit mode because the process umask may allow group/world access.
+        #[cfg(unix)]
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         Ok(())
     }

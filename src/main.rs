@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     name = "multiglass",
-    about = "Stream whatever iTerm2 tab you're on to the hub"
+    about = "Stream terminal sessions through one local relay to the hub"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -42,8 +42,14 @@ enum Command {
         /// alone until you `multiglass switch` it yourself.
         #[arg(long)]
         no_switch: bool,
-        /// Interactive command to mirror; put it last, after `--`. Defaults to $SHELL.
-        #[arg(trailing_var_arg = true)]
+        /// Interactive command to mirror; put it last, after `--`. Defaults to
+        /// $SHELL on Unix or %COMSPEC% on Windows.
+        #[arg(
+            last = true,
+            num_args = 1..,
+            allow_hyphen_values = true,
+            value_name = "CMD"
+        )]
         command: Vec<String>,
     },
     /// Tell the relay to upstream this session now.
@@ -81,7 +87,9 @@ async fn status() -> Result<()> {
         .get(format!("{base}/multiglass/status"))
         .send()
         .await
-        .with_context(|| format!("calling the local relay at {base} — is `multiglass start` running?"))?;
+        .with_context(|| {
+            format!("calling the local relay at {base} — is `multiglass start` running?")
+        })?;
     if !resp.status().is_success() {
         anyhow::bail!(
             "status failed: {} {}",
@@ -121,7 +129,9 @@ async fn call_switch(base: &str, slug: &str) -> Result<()> {
         .json(&serde_json::json!({ "slug": slug }))
         .send()
         .await
-        .with_context(|| format!("calling the local relay at {base} — is `multiglass start` running?"))?;
+        .with_context(|| {
+            format!("calling the local relay at {base} — is `multiglass start` running?")
+        })?;
     if !resp.status().is_success() {
         anyhow::bail!(
             "switch failed: {} {}",
@@ -142,7 +152,11 @@ async fn switch(slug: Option<String>) -> Result<()> {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Config { key, upstream, port } => config::login(key, upstream, port),
+        Command::Config {
+            key,
+            upstream,
+            port,
+        } => config::login(key, upstream, port),
         Command::Start => daemon::start(),
         Command::Stop => daemon::stop(),
         Command::Stream {
@@ -153,5 +167,34 @@ async fn main() -> Result<()> {
         Command::Switch { slug } => switch(slug).await,
         Command::Status => status().await,
         Command::RelayServer => relay::run().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_command_after_separator_is_not_consumed_as_slug() {
+        let cli = Cli::try_parse_from(["multiglass", "stream", "--", "powershell.exe", "-NoLogo"])
+            .unwrap();
+
+        let Command::Stream { slug, command, .. } = cli.command else {
+            panic!("expected stream command");
+        };
+        assert_eq!(slug, None);
+        assert_eq!(command, ["powershell.exe", "-NoLogo"]);
+    }
+
+    #[test]
+    fn stream_still_accepts_a_positional_slug_before_command() {
+        let cli =
+            Cli::try_parse_from(["multiglass", "stream", "work", "--", "cmd.exe", "/d"]).unwrap();
+
+        let Command::Stream { slug, command, .. } = cli.command else {
+            panic!("expected stream command");
+        };
+        assert_eq!(slug.as_deref(), Some("work"));
+        assert_eq!(command, ["cmd.exe", "/d"]);
     }
 }

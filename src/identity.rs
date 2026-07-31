@@ -18,10 +18,9 @@ fn iterm_slug() -> Option<String> {
 }
 
 fn random_slug() -> Result<String> {
-    use std::io::Read as _;
-    let mut file = std::fs::File::open("/dev/urandom")?;
     let mut buf = [0u8; 8];
-    file.read_exact(&mut buf)?;
+    getrandom::fill(&mut buf)
+        .map_err(|e| anyhow::anyhow!("generating a random session slug: {e}"))?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 

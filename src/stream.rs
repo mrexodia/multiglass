@@ -10,7 +10,7 @@
 //! point; streaming is a bonus the relay may or may not be around for.
 
 use crate::identity;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use shellglass::api::{Presentation, PushOptions, push};
 use shellglass::proto::session_id;
 use shellglass::pty;
@@ -21,15 +21,22 @@ use std::time::Duration;
 const RELAY_WAIT_BACKOFF: Duration = Duration::from_millis(500);
 
 fn local_key() -> Result<String> {
-    use std::io::Read as _;
-    let mut file = std::fs::File::open("/dev/urandom").context("opening /dev/urandom")?;
     let mut buf = [0u8; 32];
-    file.read_exact(&mut buf).context("reading /dev/urandom")?;
+    getrandom::fill(&mut buf)
+        .map_err(|e| anyhow::anyhow!("generating a local session key: {e}"))?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+#[cfg(unix)]
 fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+}
+
+#[cfg(windows)]
+fn default_shell() -> String {
+    // COMSPEC is always a native Windows path. SHELL is often absent, or may
+    // be an MSYS path that CreateProcess/ConPTY cannot resolve.
+    std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into())
 }
 
 pub async fn run(slug: Option<String>, no_switch: bool, command: Vec<String>) -> Result<()> {
@@ -73,7 +80,12 @@ pub async fn run(slug: Option<String>, no_switch: bool, command: Vec<String>) ->
     // from ever pausing/clearing the real terminal once it's live.
     options.eager_start = true;
     let presentation = Presentation::load(None)?;
-    push(move || pty::start(&command, false, true), presentation, options).await
+    push(
+        move || pty::start(&command, false, true),
+        presentation,
+        options,
+    )
+    .await
 }
 
 /// Register this session with the relay and, unless `no_switch`, switch it
