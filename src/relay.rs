@@ -80,14 +80,22 @@ async fn register(
     Json(body): Json<RegisterBody>,
 ) -> Result<(), (axum::http::StatusCode, String)> {
     use shellglass::hub::AddError;
-    // Re-attaching in the same tab reuses the same slug with a fresh id —
-    // drop the stale registration first rather than erroring.
-    if let Err(AddError::SlugTaken) = state.hub.add_session(&body.id, Some(&body.slug)) {
-        state.hub.remove_by_slug(&body.slug);
-        state
-            .hub
-            .add_session(&body.id, Some(&body.slug))
-            .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, format!("{e:?}")))?;
+    match state.hub.add_session(&body.id, Some(&body.slug)) {
+        Ok(()) => {}
+        // Re-attaching in the same tab reuses the same slug with a fresh id —
+        // drop the stale registration first rather than erroring.
+        Err(AddError::SlugTaken) => {
+            state.hub.remove_by_slug(&body.slug);
+            state
+                .hub
+                .add_session(&body.id, Some(&body.slug))
+                .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, format!("{e:?}")))?;
+        }
+        // Any other add failure (e.g. this exact id already registered under a
+        // different slug) must not be swallowed — a 200 whose registration
+        // silently no-opped is exactly what turned into an inexplicable 403
+        // on the very next `/push`.
+        Err(e) => return Err((axum::http::StatusCode::BAD_REQUEST, format!("{e:?}"))),
     }
     state.meta.lock().await.insert(
         body.slug,
