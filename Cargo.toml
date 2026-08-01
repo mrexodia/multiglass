@@ -8,7 +8,7 @@ name = "multiglass"
 path = "src/main.rs"
 
 [dependencies]
-shellglass = { git = "https://github.com/mrexodia/shellglass", branch = "disconnect-fix", default-features = false, features = ["mirror", "push-api", "hub"] }
+shellglass = { git = "https://github.com/mrexodia/shellglass", branch = "multiglass", default-features = false, features = ["mirror", "push-api", "hub"] }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8" }
 clap = { version = "4", features = ["derive"] }

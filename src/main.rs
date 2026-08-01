@@ -82,6 +82,14 @@ async fn status() -> Result<()> {
     println!("relay:    {base}");
     println!();
 
+    // The pidfile is the relay's source of truth. Show the configured
+    // endpoints above, but avoid a request that can only fail when the daemon
+    // is not running.
+    if !daemon::is_running() {
+        println!("multiglass: not running");
+        return Ok(());
+    }
+
     let client = reqwest::Client::new();
     let resp = client
         .get(format!("{base}/multiglass/status"))
@@ -162,7 +170,20 @@ async fn main() -> Result<()> {
             slug,
             no_switch,
             command,
-        } => stream::run(slug, no_switch, command).await,
+        } => {
+            // A bare `stream` inside an already-wrapped shell is an idempotent
+            // request to make that existing session live, not a request to
+            // create another PTY inside it.
+            if slug.is_none()
+                && !no_switch
+                && command.is_empty()
+                && let Some(slug) = identity::enclosing_stream_slug()
+            {
+                switch(Some(slug)).await
+            } else {
+                stream::run(slug, no_switch, command).await
+            }
+        }
         Command::Switch { slug } => switch(slug).await,
         Command::Status => status().await,
         Command::RelayServer => relay::run().await,

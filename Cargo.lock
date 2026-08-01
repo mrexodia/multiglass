@@ -3534,7 +3534,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "shellglass"
 version = "0.0.0-dev"
-source = "git+https://github.com/mrexodia/shellglass?branch=disconnect-fix#49406a4452ff2a1dd7f4d74355f381696adfa3f2"
+source = "git+https://github.com/mrexodia/shellglass?branch=multiglass#96eabbaa57c4c0b577cef294d04d58e13def1478"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4239,7 +4239,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vt100"
 version = "0.16.2"
-source = "git+https://github.com/mrexodia/shellglass?branch=disconnect-fix#49406a4452ff2a1dd7f4d74355f381696adfa3f2"
+source = "git+https://github.com/mrexodia/shellglass?branch=multiglass#96eabbaa57c4c0b577cef294d04d58e13def1478"
 dependencies = [
  "itoa",
  "unicode-width",

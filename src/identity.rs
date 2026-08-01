@@ -24,10 +24,16 @@ fn random_slug() -> Result<String> {
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// The ambient identity of the shell we're running in, if any: `$MULTIGLASS_SLUG`
-/// (set by an enclosing `stream`) or, failing that, iTerm2's session GUID.
+/// The identity exported by an enclosing `multiglass stream`, if this shell is
+/// already wrapped.
+pub fn enclosing_stream_slug() -> Option<String> {
+    std::env::var(SLUG_ENV).ok()
+}
+
+/// The ambient identity of the shell we're running in, if any: an enclosing
+/// `stream` wins, followed by iTerm2's session GUID.
 fn ambient_slug() -> Option<String> {
-    std::env::var(SLUG_ENV).ok().or_else(iterm_slug)
+    enclosing_stream_slug().or_else(iterm_slug)
 }
 
 /// The identity `stream` should register under: an explicit slug you named
